@@ -1,81 +1,153 @@
+
 package com.codepath.lab6
 
+import android.content.Context
 import android.os.Bundle
-import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.DividerItemDecoration
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.fragment.app.Fragment
 import com.codepath.lab6.databinding.ActivityMainBinding
-import com.codepath.asynchttpclient.AsyncHttpClient
-import com.codepath.asynchttpclient.callback.JsonHttpResponseHandler
 import kotlinx.serialization.json.Json
-import okhttp3.Headers
-import org.json.JSONException
 
-// Helper function for JSON parsing
+// Keep this helper because ParksFragment uses it
 fun createJson() = Json {
     isLenient = true
     ignoreUnknownKeys = true
     useAlternativeNames = false
 }
 
-private const val TAG = "MainActivity/"
-private val API_KEY = BuildConfig.API_KEY
-private val PARKS_URL = "https://developer.nps.gov/api/v1/parks?api_key=${API_KEY}"
-
 class MainActivity : AppCompatActivity() {
 
-    private val parks = mutableListOf<Park>()
-    private lateinit var parksRecyclerView: RecyclerView
     private lateinit var binding: ActivityMainBinding
 
+    private var activeFragment: Fragment? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
+
+        // Load the user's saved dark mode preference
+        val preferences = getSharedPreferences(
+            "CampgroundSettings",
+            Context.MODE_PRIVATE
+        )
+
+        val darkModeEnabled = preferences.getBoolean(
+            "dark_mode",
+            false
+        )
+
+        // Apply dark mode before creating the activity
+        AppCompatDelegate.setDefaultNightMode(
+            if (darkModeEnabled) {
+                AppCompatDelegate.MODE_NIGHT_YES
+            } else {
+                AppCompatDelegate.MODE_NIGHT_NO
+            }
+        )
+
         super.onCreate(savedInstanceState)
 
-        // Set up ViewBinding
         binding = ActivityMainBinding.inflate(layoutInflater)
-        val view = binding.root
-        setContentView(view)
+        setContentView(binding.root)
 
-        // Find RecyclerView and set up adapter
-        parksRecyclerView = findViewById(R.id.parks)
-        val parksAdapter = ParksAdapter(this, parks)
-        parksRecyclerView.adapter = parksAdapter
+        // Restore the visible fragment after rotation
+        activeFragment = supportFragmentManager.fragments
+            .firstOrNull {
+                it.isAdded && !it.isHidden
+            }
 
-        // Use LinearLayoutManager with a divider
-        parksRecyclerView.layoutManager = LinearLayoutManager(this).also {
-            val dividerItemDecoration = DividerItemDecoration(this, it.orientation)
-            parksRecyclerView.addItemDecoration(dividerItemDecoration)
+        // Set up bottom navigation with four tabs
+        binding.bottomNavigation.setOnItemSelectedListener { item ->
+
+            val tag = when (item.itemId) {
+
+                R.id.navigation_home -> "home"
+
+                R.id.navigation_parks -> "parks"
+
+                R.id.navigation_campgrounds -> "campgrounds"
+
+                R.id.navigation_settings -> "settings"
+
+                else -> return@setOnItemSelectedListener false
+            }
+
+            showFragment(tag)
+            true
         }
 
-        // Fetch data from NPS Parks API
-        val client = AsyncHttpClient()
-        client.get(PARKS_URL, object : JsonHttpResponseHandler() {
-            override fun onFailure(
-                statusCode: Int,
-                headers: Headers?,
-                response: String?,
-                throwable: Throwable?
-            ) {
-                Log.e(TAG, "Failed to fetch parks: $statusCode")
+        // Set Home as the default tab on first launch
+        if (savedInstanceState == null) {
+            binding.bottomNavigation.selectedItemId =
+                R.id.navigation_home
+        } else {
+
+            // Restore the selected tab after rotation
+            val restoredTag = activeFragment?.tag
+
+            val selectedId = when (restoredTag) {
+
+                "home" -> R.id.navigation_home
+
+                "parks" -> R.id.navigation_parks
+
+                "campgrounds" -> R.id.navigation_campgrounds
+
+                "settings" -> R.id.navigation_settings
+
+                else -> R.id.navigation_home
             }
 
-            override fun onSuccess(statusCode: Int, headers: Headers, json: JSON) {
-                Log.i(TAG, "Successfully fetched parks: $json")
-                try {
-                    val parsedJson = createJson().decodeFromString(
-                        ParksResponse.serializer(),
-                        json.jsonObject.toString()
-                    )
-                    parsedJson.data?.let { list ->
-                        parks.addAll(list)
-                        parksAdapter.notifyDataSetChanged()
-                    }
-                } catch (e: JSONException) {
-                    Log.e(TAG, "Exception: $e")
-                }
-            }
-        })
+            binding.bottomNavigation.selectedItemId = selectedId
+        }
+    }
+
+    private fun showFragment(tag: String) {
+
+        val fragmentManager = supportFragmentManager
+
+        val existingFragment =
+            fragmentManager.findFragmentByTag(tag)
+
+        // Avoid recreating the currently displayed fragment
+        if (activeFragment?.tag == tag) {
+            return
+        }
+
+        // Reuse an existing fragment or create a new one
+        val fragment = existingFragment ?: when (tag) {
+
+            "home" -> HomeFragment()
+
+            "parks" -> ParksFragment()
+
+            "campgrounds" -> CampgroundFragment()
+
+            "settings" -> SettingsFragment()
+
+            else -> return
+        }
+
+        val transaction = fragmentManager.beginTransaction()
+            .setReorderingAllowed(true)
+
+        // Hide the currently visible fragment
+        activeFragment?.let {
+            transaction.hide(it)
+        }
+
+        // Add a new fragment or show an existing one
+        if (existingFragment == null) {
+            transaction.add(
+                R.id.main_frame_layout,
+                fragment,
+                tag
+            )
+        } else {
+            transaction.show(fragment)
+        }
+
+        transaction.commit()
+
+        activeFragment = fragment
     }
 }

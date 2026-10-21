@@ -1,94 +1,125 @@
+
 package com.codepath.lab6
 
 import android.os.Bundle
 import android.util.Log
-import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.codepath.asynchttpclient.AsyncHttpClient
 import com.codepath.asynchttpclient.callback.JsonHttpResponseHandler
 import okhttp3.Headers
-import org.json.JSONException
-import kotlin.let
 
 private const val TAG = "CampgroundFragment"
-private const val API_KEY = BuildConfig.API_KEY
-private const val CAMPGROUND_URL =
-    "https://developer.nps.gov/api/v1/campgrounds?api_key=${API_KEY}"
+private val CAMPGROUND_URL =
+    "https://developer.nps.gov/api/v1/campgrounds?api_key=${BuildConfig.API_KEY}"
 
-/**
- * A simple [Fragment] subclass.
- * Use the [CampgroundFragment.newInstance] factory method to
- * create an instance of this fragment.
- */
 class CampgroundFragment : Fragment() {
 
     private val campgrounds = mutableListOf<Campground>()
     private lateinit var campgroundsRecyclerView: RecyclerView
     private lateinit var campgroundAdapter: CampgroundAdapter
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-    }
+    private var isLoading = false
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        // Change this statement to store the view in a variable instead of a return statement
-        val view = inflater.inflate(R.layout.fragment_campground, container, false)
+    ): View {
+        val view = inflater.inflate(
+            R.layout.fragment_campground,
+            container,
+            false
+        )
 
-        // Add these configurations for the recyclerView and to configure the adapter
-        val layoutManager = LinearLayoutManager(context)
-        campgroundsRecyclerView = view.findViewById(R.id.campground_recycler_view)
-        campgroundsRecyclerView.layoutManager = layoutManager
+        campgroundsRecyclerView =
+            view.findViewById(R.id.campground_recycler_view)
+
+        campgroundsRecyclerView.layoutManager =
+            LinearLayoutManager(requireContext())
+
         campgroundsRecyclerView.setHasFixedSize(true)
-        campgroundAdapter = CampgroundAdapter(view.context, campgrounds)
+
+        campgroundAdapter =
+            CampgroundAdapter(requireContext(), campgrounds)
+
         campgroundsRecyclerView.adapter = campgroundAdapter
 
-        fetchCampgrounds()
-
-        // Update the return statement to return the inflated view from above
         return view
     }
 
-    companion object {
-        fun newInstance(): CampgroundFragment {
-            return CampgroundFragment()
+    override fun onViewCreated(
+        view: View,
+        savedInstanceState: Bundle?
+    ) {
+        super.onViewCreated(view, savedInstanceState)
+
+        if (campgrounds.isEmpty() && !isLoading) {
+            fetchCampgrounds()
         }
     }
 
     private fun fetchCampgrounds() {
+        isLoading = true
+
         val client = AsyncHttpClient()
+
         client.get(CAMPGROUND_URL, object : JsonHttpResponseHandler() {
+
             override fun onFailure(
                 statusCode: Int,
                 headers: Headers?,
                 response: String?,
                 throwable: Throwable?
             ) {
-                Log.e(TAG, "Failed to fetch campgrounds: $statusCode")
+                isLoading = false
+                Log.e(
+                    TAG,
+                    "Failed to fetch campgrounds: $statusCode",
+                    throwable
+                )
             }
 
-            override fun onSuccess(statusCode: Int, headers: Headers, json: JSON) {
-                Log.i(TAG, "Successfully fetched campgrounds: $json")
+            override fun onSuccess(
+                statusCode: Int,
+                headers: Headers,
+                json: JSON
+            ) {
+                isLoading = false
+
                 try {
                     val parsedJson = createJson().decodeFromString(
                         CampgroundResponse.serializer(),
                         json.jsonObject.toString()
                     )
+
                     parsedJson.data?.let { list ->
+                        campgrounds.clear()
                         campgrounds.addAll(list)
-                        campgroundAdapter.notifyDataSetChanged()
+
+                        if (view != null) {
+                            campgroundAdapter.notifyDataSetChanged()
+                        }
                     }
-                } catch (e: JSONException) {
-                    Log.e(TAG, "Exception: $e")
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing campgrounds", e)
                 }
             }
         })
+    }
+
+    override fun onDestroyView() {
+        campgroundsRecyclerView.adapter = null
+        super.onDestroyView()
+    }
+
+    companion object {
+        fun newInstance(): CampgroundFragment {
+            return CampgroundFragment()
+        }
     }
 }
